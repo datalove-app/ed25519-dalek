@@ -27,7 +27,7 @@ use serde::de::Error as SerdeError;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "serde")]
-use serde_bytes::{Bytes as SerdeBytes, ByteBuf as SerdeByteBuf};
+use serde_bytes::{ByteBuf as SerdeByteBuf, Bytes as SerdeBytes};
 
 use zeroize::Zeroize;
 
@@ -108,7 +108,8 @@ impl SecretKey {
             return Err(InternalError::BytesLengthError {
                 name: "SecretKey",
                 length: SECRET_KEY_LENGTH,
-            }.into());
+            }
+            .into());
         }
         let mut bits: [u8; 32] = [0u8; 32];
         bits.copy_from_slice(&bytes[..32]);
@@ -264,7 +265,7 @@ impl<'a> From<&'a SecretKey> for ExpandedSecretKey {
     /// ```
     fn from(secret_key: &'a SecretKey) -> ExpandedSecretKey {
         let mut h: Sha512 = Sha512::default();
-        let mut hash:  [u8; 64] = [0u8; 64];
+        let mut hash: [u8; 64] = [0u8; 64];
         let mut lower: [u8; 32] = [0u8; 32];
         let mut upper: [u8; 32] = [0u8; 32];
 
@@ -274,11 +275,14 @@ impl<'a> From<&'a SecretKey> for ExpandedSecretKey {
         lower.copy_from_slice(&hash[00..32]);
         upper.copy_from_slice(&hash[32..64]);
 
-        lower[0]  &= 248;
-        lower[31] &=  63;
-        lower[31] |=  64;
+        lower[0] &= 248;
+        lower[31] &= 63;
+        lower[31] |= 64;
 
-        ExpandedSecretKey{ key: Scalar::from_bits(lower), nonce: upper, }
+        ExpandedSecretKey {
+            key: Scalar::from_bits(lower),
+            nonce: upper,
+        }
     }
 }
 
@@ -371,7 +375,8 @@ impl ExpandedSecretKey {
             return Err(InternalError::BytesLengthError {
                 name: "ExpandedSecretKey",
                 length: EXPANDED_SECRET_KEY_LENGTH,
-            }.into());
+            }
+            .into());
         }
         let mut lower: [u8; 32] = [0u8; 32];
         let mut upper: [u8; 32] = [0u8; 32];
@@ -387,8 +392,11 @@ impl ExpandedSecretKey {
 
     /// Sign a message with this `ExpandedSecretKey`.
     #[allow(non_snake_case)]
-    pub fn sign(&self, message: &[u8], public_key: &PublicKey) -> ed25519::Signature {
-        let mut h: Sha512 = Sha512::new();
+    pub fn sign<PH = Sha512>(&self, message: &[u8], public_key: &PublicKey) -> ed25519::Signature
+    where
+        PH: Digest<OutputSize = U64>,
+    {
+        let mut h: PH = PH::new();
         let R: CompressedEdwardsY;
         let r: Scalar;
         let s: Scalar;
@@ -400,7 +408,7 @@ impl ExpandedSecretKey {
         r = Scalar::from_hash(h);
         R = (&r * &constants::ED25519_BASEPOINT_TABLE).compress();
 
-        h = Sha512::new();
+        h = PH::new();
         h.update(R.as_bytes());
         h.update(public_key.as_bytes());
         h.update(&message);
@@ -432,7 +440,7 @@ impl ExpandedSecretKey {
     ///
     /// [rfc8032]: https://tools.ietf.org/html/rfc8032#section-5.1
     #[allow(non_snake_case)]
-    pub fn sign_prehashed<'a, D>(
+    pub fn sign_prehashed<'a, D, PH = Sha512>(
         &self,
         prehashed_message: D,
         public_key: &PublicKey,
@@ -440,8 +448,9 @@ impl ExpandedSecretKey {
     ) -> Result<ed25519::Signature, SignatureError>
     where
         D: Digest<OutputSize = U64>,
+        PH: Digest<OutputSize = U64>,
     {
-        let mut h: Sha512;
+        let mut h: PH;
         let mut prehash: [u8; 64] = [0u8; 64];
         let R: CompressedEdwardsY;
         let r: Scalar;
@@ -451,7 +460,9 @@ impl ExpandedSecretKey {
         let ctx: &[u8] = context.unwrap_or(b""); // By default, the context is an empty string.
 
         if ctx.len() > 255 {
-            return Err(SignatureError::from(InternalError::PrehashedContextLengthError));
+            return Err(SignatureError::from(
+                InternalError::PrehashedContextLengthError,
+            ));
         }
 
         let ctx_len: u8 = ctx.len() as u8;
@@ -471,7 +482,7 @@ impl ExpandedSecretKey {
         //
         // This is a really fucking stupid bandaid, and the damned scheme is
         // still bleeding from malleability, for fuck's sake.
-        h = Sha512::new()
+        h = PH::new()
             .chain(b"SigEd25519 no Ed25519 collisions")
             .chain(&[1]) // Ed25519ph
             .chain(&[ctx_len])
@@ -482,7 +493,7 @@ impl ExpandedSecretKey {
         r = Scalar::from_hash(h);
         R = (&r * &constants::ED25519_BASEPOINT_TABLE).compress();
 
-        h = Sha512::new()
+        h = PH::new()
             .chain(b"SigEd25519 no Ed25519 collisions")
             .chain(&[1]) // Ed25519ph
             .chain(&[ctx_len])
@@ -528,7 +539,8 @@ mod test {
     fn secret_key_zeroize_on_drop() {
         let secret_ptr: *const u8;
 
-        { // scope for the secret to ensure it's been dropped
+        {
+            // scope for the secret to ensure it's been dropped
             let secret = SecretKey::from_bytes(&[0x15u8; 32][..]).unwrap();
 
             secret_ptr = secret.0.as_ptr();

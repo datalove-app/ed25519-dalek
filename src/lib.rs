@@ -234,7 +234,6 @@
 #![no_std]
 #![warn(future_incompatible)]
 #![deny(missing_docs)] // refuse to compile if documentation is missing
-
 #![cfg(not(test))]
 #![forbid(unsafe_code)]
 
@@ -247,7 +246,10 @@ pub extern crate ed25519;
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 extern crate alloc;
 extern crate curve25519_dalek;
-#[cfg(all(any(feature = "batch", feature = "batch_deterministic"), any(feature = "std", feature = "alloc")))]
+#[cfg(all(
+    any(feature = "batch", feature = "batch_deterministic"),
+    any(feature = "std", feature = "alloc")
+))]
 extern crate merlin;
 #[cfg(any(feature = "batch", feature = "std", feature = "alloc", test))]
 extern crate rand;
@@ -256,18 +258,24 @@ extern crate serde_crate as serde;
 extern crate sha2;
 extern crate zeroize;
 
-#[cfg(all(any(feature = "batch", feature = "batch_deterministic"), any(feature = "std", feature = "alloc")))]
+#[cfg(all(
+    any(feature = "batch", feature = "batch_deterministic"),
+    any(feature = "std", feature = "alloc")
+))]
 mod batch;
 mod constants;
-mod keypair;
 mod errors;
+mod keypair;
 mod public;
 mod secret;
 mod signature;
 
 pub use curve25519_dalek::digest::Digest;
 
-#[cfg(all(any(feature = "batch", feature = "batch_deterministic"), any(feature = "std", feature = "alloc")))]
+#[cfg(all(
+    any(feature = "batch", feature = "batch_deterministic"),
+    any(feature = "std", feature = "alloc")
+))]
 pub use crate::batch::*;
 pub use crate::constants::*;
 pub use crate::errors::*;
@@ -278,3 +286,36 @@ pub use crate::secret::*;
 // Re-export the `Signer` and `Verifier` traits from the `signature` crate
 pub use ed25519::signature::{Signer, Verifier};
 pub use ed25519::Signature;
+
+pub use crate::custom_digest::*;
+mod custom_digest {
+    use crate::SignatureError;
+    use curve25519_dalek::digest::generic_array::typenum::U64;
+    use curve25519_dalek::digest::Digest;
+    use ed25519::signature::Signature;
+
+    /// Sign the provided message bytestring using `Self` (e.g. a cryptographic key or connection to an HSM) and a [`Digest`], returning a digital signature.
+    ///
+    /// [`Digest`]: curve25519_dalek::digest::Digest
+    pub trait DigestSigner<D: Digest<OutputSize = U64>, S: Signature> {
+        /// Attempt to sign the given message, returning a digital signature on
+        /// success, or an error if something went wrong.
+        ///
+        /// The main intended use case for signing errors is when communicating
+        /// with external signers, e.g. cloud KMS, HSMs, or other hardware
+        /// tokens.
+        fn try_sign(&self, message: &[u8]) -> Result<S, SignatureError>;
+    }
+
+    /// Verify the provided message bytestring using `Self` (e.g. a public key)
+    /// and a [`Digest`].
+    ///
+    /// [`Digest`]: curve25519_dalek::digest::Digest
+    pub trait DigestVerifier<D: Digest<OutputSize = U64>, S: Signature> {
+        /// Use `Self` to verify that the provided signature for a given message
+        /// is authentic.
+        ///
+        /// Returns `Error` if it is inauthentic, or otherwise returns `()`.
+        fn verify(&self, message: &[u8], signature: &S) -> Result<(), SignatureError>;
+    }
+}

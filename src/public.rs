@@ -28,7 +28,7 @@ use serde::de::Error as SerdeError;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "serde")]
-use serde_bytes::{Bytes as SerdeBytes, ByteBuf as SerdeByteBuf};
+use serde_bytes::{ByteBuf as SerdeByteBuf, Bytes as SerdeBytes};
 
 use crate::constants::*;
 use crate::errors::*;
@@ -131,7 +131,8 @@ impl PublicKey {
             return Err(InternalError::BytesLengthError {
                 name: "PublicKey",
                 length: PUBLIC_KEY_LENGTH,
-            }.into());
+            }
+            .into());
         }
         let mut bits: [u8; 32] = [0u8; 32];
         bits.copy_from_slice(&bytes[..32]);
@@ -179,7 +180,7 @@ impl PublicKey {
     ///
     /// [rfc8032]: https://tools.ietf.org/html/rfc8032#section-5.1
     #[allow(non_snake_case)]
-    pub fn verify_prehashed<D>(
+    pub fn verify_prehashed<D, PH = Sha512>(
         &self,
         prehashed_message: D,
         context: Option<&[u8]>,
@@ -187,15 +188,19 @@ impl PublicKey {
     ) -> Result<(), SignatureError>
     where
         D: Digest<OutputSize = U64>,
+        PH: Digest<OutputSize = U64>,
     {
         let signature = InternalSignature::try_from(signature)?;
 
-        let mut h: Sha512 = Sha512::default();
+        let mut h: PH = PH::new();
         let R: EdwardsPoint;
         let k: Scalar;
 
         let ctx: &[u8] = context.unwrap_or(b"");
-        debug_assert!(ctx.len() <= 255, "The context must not be longer than 255 octets.");
+        debug_assert!(
+            ctx.len() <= 255,
+            "The context must not be longer than 255 octets."
+        );
 
         let minus_A: EdwardsPoint = -self.1;
 
@@ -280,15 +285,17 @@ impl PublicKey {
     ///
     /// Returns `Ok(())` if the signature is valid, and `Err` otherwise.
     #[allow(non_snake_case)]
-    pub fn verify_strict(
+    pub fn verify_strict<PH = Sha512>(
         &self,
         message: &[u8],
         signature: &ed25519::Signature,
     ) -> Result<(), SignatureError>
+    where
+        PH: Digest<OutputSize = U64>,
     {
         let signature = InternalSignature::try_from(signature)?;
 
-        let mut h: Sha512 = Sha512::new();
+        let mut h: PH = PH::new();
         let R: EdwardsPoint;
         let k: Scalar;
         let minus_A: EdwardsPoint = -self.1;
@@ -319,22 +326,12 @@ impl PublicKey {
     }
 }
 
-impl Verifier<ed25519::Signature> for PublicKey {
-    /// Verify a signature on a message with this keypair's public key.
-    ///
-    /// # Return
-    ///
-    /// Returns `Ok(())` if the signature is valid, and `Err` otherwise.
+impl<D: Digest<OutputSize = U64>> crate::DigestVerifier<D, ed25519::Signature> for PublicKey {
     #[allow(non_snake_case)]
-    fn verify(
-        &self,
-        message: &[u8],
-        signature: &ed25519::Signature
-    ) -> Result<(), SignatureError>
-    {
+    fn verify(&self, message: &[u8], signature: &ed25519::Signature) -> Result<(), SignatureError> {
         let signature = InternalSignature::try_from(signature)?;
 
-        let mut h: Sha512 = Sha512::new();
+        let mut h: D = D::new();
         let R: EdwardsPoint;
         let k: Scalar;
         let minus_A: EdwardsPoint = -self.1;
@@ -351,6 +348,17 @@ impl Verifier<ed25519::Signature> for PublicKey {
         } else {
             Err(InternalError::VerifyError.into())
         }
+    }
+}
+
+impl Verifier<ed25519::Signature> for PublicKey {
+    /// Verify a signature on a message with this keypair's public key.
+    ///
+    /// # Return
+    ///
+    /// Returns `Ok(())` if the signature is valid, and `Err` otherwise.
+    fn verify(&self, message: &[u8], signature: &ed25519::Signature) -> Result<(), SignatureError> {
+        crate::DigestVerifier::<Sha512, ed25519::Signature>::verify(self, message, signature)
     }
 }
 

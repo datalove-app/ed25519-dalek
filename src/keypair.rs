@@ -17,7 +17,7 @@ use serde::de::Error as SerdeError;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "serde")]
-use serde_bytes::{Bytes as SerdeBytes, ByteBuf as SerdeByteBuf};
+use serde_bytes::{ByteBuf as SerdeByteBuf, Bytes as SerdeBytes};
 
 pub use sha2::Sha512;
 
@@ -82,12 +82,16 @@ impl Keypair {
             return Err(InternalError::BytesLengthError {
                 name: "Keypair",
                 length: KEYPAIR_LENGTH,
-            }.into());
+            }
+            .into());
         }
         let secret = SecretKey::from_bytes(&bytes[..SECRET_KEY_LENGTH])?;
         let public = PublicKey::from_bytes(&bytes[SECRET_KEY_LENGTH..])?;
 
-        Ok(Keypair{ secret: secret, public: public })
+        Ok(Keypair {
+            secret: secret,
+            public: public,
+        })
     }
 
     /// Generate an ed25519 keypair.
@@ -131,7 +135,10 @@ impl Keypair {
         let sk: SecretKey = SecretKey::generate(csprng);
         let pk: PublicKey = (&sk).into();
 
-        Keypair{ public: pk, secret: sk }
+        Keypair {
+            public: pk,
+            secret: sk,
+        }
     }
 
     /// Sign a `prehashed_message` with this `Keypair` using the
@@ -234,26 +241,26 @@ impl Keypair {
     ///
     /// [rfc8032]: https://tools.ietf.org/html/rfc8032#section-5.1
     /// [terrible_idea]: https://github.com/isislovecruft/scripts/blob/master/gpgkey2bc.py
-    pub fn sign_prehashed<D>(
+    pub fn sign_prehashed<D, PH = Sha512>(
         &self,
         prehashed_message: D,
         context: Option<&[u8]>,
     ) -> Result<ed25519::Signature, SignatureError>
     where
         D: Digest<OutputSize = U64>,
+        PH: Digest<OutputSize = U64>,
     {
         let expanded: ExpandedSecretKey = (&self.secret).into(); // xxx thanks i hate this
 
-        expanded.sign_prehashed(prehashed_message, &self.public, context).into()
+        (expanded.sign_prehashed::<D, PH>(prehashed_message, &self.public, context)).into()
     }
 
     /// Verify a signature on a message with this keypair's public key.
     pub fn verify(
         &self,
         message: &[u8],
-        signature: &ed25519::Signature
-    ) -> Result<(), SignatureError>
-    {
+        signature: &ed25519::Signature,
+    ) -> Result<(), SignatureError> {
         self.public.verify(message, signature)
     }
 
@@ -320,7 +327,7 @@ impl Keypair {
     /// ```
     ///
     /// [rfc8032]: https://tools.ietf.org/html/rfc8032#section-5.1
-    pub fn verify_prehashed<D>(
+    pub fn verify_prehashed<D, PH = Sha512>(
         &self,
         prehashed_message: D,
         context: Option<&[u8]>,
@@ -328,8 +335,10 @@ impl Keypair {
     ) -> Result<(), SignatureError>
     where
         D: Digest<OutputSize = U64>,
+        PH: Digest<OutputSize = U64>,
     {
-        self.public.verify_prehashed(prehashed_message, context, signature)
+        self.public
+            .verify_prehashed::<D, PH>(prehashed_message, context, signature)
     }
 
     /// Strictly verify a signature on a message with this keypair's public key.
@@ -395,13 +404,15 @@ impl Keypair {
     ///
     /// Returns `Ok(())` if the signature is valid, and `Err` otherwise.
     #[allow(non_snake_case)]
-    pub fn verify_strict(
+    pub fn verify_strict<PH = Sha512>(
         &self,
         message: &[u8],
         signature: &ed25519::Signature,
     ) -> Result<(), SignatureError>
+    where
+        PH: Digest<OutputSize = U64>,
     {
-        self.public.verify_strict(message, signature)
+        self.public.verify_strict::<PH>(message, signature)
     }
 }
 
@@ -409,7 +420,7 @@ impl Signer<ed25519::Signature> for Keypair {
     /// Sign a message with this keypair's secret key.
     fn try_sign(&self, message: &[u8]) -> Result<ed25519::Signature, SignatureError> {
         let expanded: ExpandedSecretKey = (&self.secret).into();
-        Ok(expanded.sign(&message, &self.public).into())
+        Ok(expanded.sign::<Sha512>(&message, &self.public).into())
     }
 }
 
@@ -417,6 +428,19 @@ impl Verifier<ed25519::Signature> for Keypair {
     /// Verify a signature on a message with this keypair's public key.
     fn verify(&self, message: &[u8], signature: &ed25519::Signature) -> Result<(), SignatureError> {
         self.public.verify(message, signature)
+    }
+}
+
+impl<D: Digest<OutputSize = U64>> crate::DigestSigner<D, ed25519::Signature> for Keypair {
+    fn try_sign(&self, message: &[u8]) -> Result<ed25519::Signature, SignatureError> {
+        let expanded: ExpandedSecretKey = (&self.secret).into();
+        Ok(expanded.sign::<D>(&message, &self.public).into())
+    }
+}
+
+impl<D: Digest<OutputSize = U64>> crate::DigestVerifier<D, ed25519::Signature> for Keypair {
+    fn verify(&self, message: &[u8], signature: &ed25519::Signature) -> Result<(), SignatureError> {
+        crate::DigestVerifier::<D, ed25519::Signature>::verify(&self.public, message, signature)
     }
 }
 
