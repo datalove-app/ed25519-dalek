@@ -392,11 +392,11 @@ impl ExpandedSecretKey {
 
     /// Sign a message with this `ExpandedSecretKey`.
     #[allow(non_snake_case)]
-    pub fn sign<PH = Sha512>(&self, message: &[u8], public_key: &PublicKey) -> ed25519::Signature
+    pub fn sign<D = Sha512>(&self, message: &[u8], public_key: &PublicKey) -> ed25519::Signature
     where
-        PH: Digest<OutputSize = U64>,
+        D: Digest<OutputSize = U64>,
     {
-        let mut h: PH = PH::new();
+        let mut h: D = D::new();
         let R: CompressedEdwardsY;
         let r: Scalar;
         let s: Scalar;
@@ -408,7 +408,7 @@ impl ExpandedSecretKey {
         r = Scalar::from_hash(h);
         R = (&r * &constants::ED25519_BASEPOINT_TABLE).compress();
 
-        h = PH::new();
+        h = D::new();
         h.update(R.as_bytes());
         h.update(public_key.as_bytes());
         h.update(&message);
@@ -440,17 +440,17 @@ impl ExpandedSecretKey {
     ///
     /// [rfc8032]: https://tools.ietf.org/html/rfc8032#section-5.1
     #[allow(non_snake_case)]
-    pub fn sign_prehashed<'a, D, PH = Sha512>(
+    pub fn sign_prehashed<'a, PH, D = Sha512>(
         &self,
-        prehashed_message: D,
+        prehashed_message: PH,
         public_key: &PublicKey,
         context: Option<&'a [u8]>,
     ) -> Result<ed25519::Signature, SignatureError>
     where
-        D: Digest<OutputSize = U64>,
         PH: Digest<OutputSize = U64>,
+        D: Digest<OutputSize = U64>,
     {
-        let mut h: PH;
+        let mut h: D;
         let mut prehash: [u8; 64] = [0u8; 64];
         let R: CompressedEdwardsY;
         let r: Scalar;
@@ -482,7 +482,7 @@ impl ExpandedSecretKey {
         //
         // This is a really fucking stupid bandaid, and the damned scheme is
         // still bleeding from malleability, for fuck's sake.
-        h = PH::new()
+        h = D::new()
             .chain(b"SigEd25519 no Ed25519 collisions")
             .chain(&[1]) // Ed25519ph
             .chain(&[ctx_len])
@@ -493,7 +493,7 @@ impl ExpandedSecretKey {
         r = Scalar::from_hash(h);
         R = (&r * &constants::ED25519_BASEPOINT_TABLE).compress();
 
-        h = PH::new()
+        h = D::new()
             .chain(b"SigEd25519 no Ed25519 collisions")
             .chain(&[1]) // Ed25519ph
             .chain(&[ctx_len])

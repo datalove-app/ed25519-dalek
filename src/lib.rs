@@ -297,7 +297,7 @@ mod custom_digest {
     /// Sign the provided message bytestring using `Self` (e.g. a cryptographic key or connection to an HSM) and a [`Digest`], returning a digital signature.
     ///
     /// [`Digest`]: curve25519_dalek::digest::Digest
-    pub trait DigestSigner<D: Digest<OutputSize = U64>, S: Signature> {
+    pub trait DigestSigner<S: Signature, D: Digest<OutputSize = U64>> {
         /// Attempt to sign the given message, returning a digital signature on
         /// success, or an error if something went wrong.
         ///
@@ -311,7 +311,7 @@ mod custom_digest {
     /// and a [`Digest`].
     ///
     /// [`Digest`]: curve25519_dalek::digest::Digest
-    pub trait DigestVerifier<D: Digest<OutputSize = U64>, S: Signature> {
+    pub trait DigestVerifier<S: Signature, D: Digest<OutputSize = U64>> {
         /// Use `Self` to verify that the provided signature for a given message
         /// is authentic.
         ///
